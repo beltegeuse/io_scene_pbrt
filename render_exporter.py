@@ -132,43 +132,53 @@ def measure(first, second):
     distance = sqrt((locx)**2 + (locy)**2 + (locz)**2)
     return distance
 
-def export_spot_lights(pbrt_file, scene):
+def export_lights(pbrt_file, scene):
     for ob in scene.objects:
-            print('OB TYPE: ' + ob.type)
-            if ob.type == "LIGHT" :
-                la = ob.data
-                print('Light type: ' + la.type)
-                if la.type == "SPOT" :
-                    print('\n\nexporting light: ' + la.name + ' - type: ' + la.type)
-                    from_point=ob.matrix_world.col[3]
-                    at_point=ob.matrix_world.col[2]
-                    at_point=at_point * -1
-                    at_point=at_point + from_point
-                    pbrt_file.attr_begin()
-                    pbrt_file.write(" LightSource \"spot\"\n \"point from\" [%s %s %s]\n \"point to\" [%s %s %s]\n" % (from_point.x, from_point.y, from_point.z,at_point.x, at_point.y, at_point.z))
-                    
-                    #TODO: Parse the values from the light \ color and so on. also add falloff etc.
-                    pbrt_file.write("\"blackbody I\" [5500 125]\n")
+        print('OB TYPE: ' + ob.type)
+        if ob.type == "LIGHT" :
+            la = ob.data
+            print('Light type: ' + la.type)
+            if la.type == "AREA" :
+                pbrt_file.attr_begin()
+                pbrt_file.write( "Transform [" + matrixtostr( ob.matrix_world.transposed() ) + "]\n" )
+                pbrt_file.write( f"Scale {la.size} {la.size_y} 1.0 \n" )
+                pbrt_file.write( f"Scale 0.5 0.5 1.0 \n" )
+                pbrt_file.write("\n")
+                pbrt_file.write(r'Shape "trianglemesh"')
+                pbrt_file.write("\n")
+                pbrt_file.write(r'"point P" [ -1.0 -1.0 0.0 1.0 -1.0 0.0 1.0 1.0 0.0 -1.0 1.0 0.0 ]')
+                pbrt_file.write("\n")
+                pbrt_file.write(r'"normal N" [ 0.0 0.0 1.0 0.0 0.0 1.0 0.0 0.0 1.0 0.0 0.0 1.0 ]')
+                pbrt_file.write("\n")
+                pbrt_file.write(r'"float UV" [ 0.0 0.0 1.0 0.0 1.0 1.0 0.0 1.0 ]')
+                pbrt_file.write("\n")
+                pbrt_file.write(r'"integer indices" [ 0 1 2 2 3 0]')
+                pbrt_file.write("\n")
 
-                    pbrt_file.write("AttributeEnd\n\n")
-    return ''
+                # export_material(pbrt_file, la, 0)
 
-def export_point_lights(pbrt_file, scene):
-    for object in scene.objects:
-            if object.type == "LIGHT" :
-                la = object.data
-                print('Light type: ' + la.type)
-                if la.type == "POINT" :
-                    print('\n\nexporting lamp: ' + object.name + ' - type: ' + object.type)
-                    print('\nExporting point light: ' + object.name)
-                    pbrt_file.attr_begin()
-                    from_point=object.matrix_world.col[3]
-                    pbrt_file.write("Translate\t%s %s %s\n" % (from_point.x, from_point.y, from_point.z))
-                    pbrt_file.write("LightSource \"point\"\n\"rgb I\" [%s %s %s]\n" % (bpy.data.objects[object.name].color[0], bpy.data.objects[object.name].color[1], bpy.data.objects[object.name].color[2]))
-                    pbrt_file.attr_end()
-                    pbrt_file.write("\n\n")
+                pbrt_file.attr_end()
+            elif la.type == "POINT":
+                print('\n\nexporting lamp: ' + ob.name + ' - type: ' + ob.type)
+                print('\nExporting point light: ' + ob.name)
+                pbrt_file.attr_begin()
+                from_point=ob.matrix_world.col[3]
+                pbrt_file.write("Translate\t%s %s %s\n" % (from_point.x, from_point.y, from_point.z))
+                pbrt_file.write("LightSource \"point\"\n\"rgb I\" [%s %s %s]\n" % (bpy.data.objects[ob.name].color[0], bpy.data.objects[ob.name].color[1], bpy.data.objects[ob.name].color[2]))
+                pbrt_file.attr_end()
+            elif la.type == "SPOT" :
+                print('\n\nexporting light: ' + la.name + ' - type: ' + la.type)
+                from_point=ob.matrix_world.col[3]
+                at_point=ob.matrix_world.col[2]
+                at_point=at_point * -1
+                at_point=at_point + from_point
+                pbrt_file.attr_begin()
+                pbrt_file.write(" LightSource \"spot\"\n \"point from\" [%s %s %s]\n \"point to\" [%s %s %s]\n" % (from_point.x, from_point.y, from_point.z,at_point.x, at_point.y, at_point.z))
+                
+                #TODO: Parse the values from the light \ color and so on. also add falloff etc.
+                pbrt_file.write("\"blackbody I\" [5500 125]\n")
 
-    return ''
+                pbrt_file.attr_end()
 
 def export_camera(pbrt_file):
     print("Fetching camera..")
@@ -1269,7 +1279,7 @@ def export_geometry(pbrt_file, scene, frameNumber):
                     objFilePath = objFolderPath + object.name + '.ply' 
                     objFilePathRel = 'meshes/' + frameNumber + '/' + object.name + '.ply' 
 
-                    pbrt_file.write(f'Shape "plymesh" "string filename" ["{objFilePathRel}"]')
+                    pbrt_file.write(f'Shape "plymesh" "string filename" ["{objFilePathRel}"]\n')
                     write_ply(objFilePath, mesh, indices, normals, i)
                 else:
                     pbrt_file.write( "Shape \"trianglemesh\"\n")
@@ -1344,10 +1354,7 @@ def export_pbrt(filepath, scene , frameNumber):
     pbrt_file.inc_indent()
 
     export_EnviromentMap(pbrt_file)
-    print('Begin export lights:')
-    export_point_lights(pbrt_file,scene)
-    export_spot_lights(pbrt_file,scene)
-    print('End export lights.')
+    export_lights(pbrt_file,scene)
     export_geometry(pbrt_file,scene,frameNumber)
     pbrt_file.dec_indent()
     world_end(pbrt_file)
