@@ -138,12 +138,41 @@ def export_lights(pbrt_file, scene):
         if ob.type == "LIGHT" :
             la = ob.data
             print('Light type: ' + la.type)
+            # Retrive color based on nodes or inside the interface...
+            light_color = None
+            light_energy = None
+            if la.use_nodes and 'Lamp Output' in la.node_tree.nodes:
+                root = la.node_tree.nodes['Lamp Output']
+                if root.inputs[0].is_linked:
+                    # There is a node attach to the surface
+                    # Just grab it and check if it is emission type
+                    child = root.inputs[0].links[0].from_node
+                    if child.bl_idname == 'ShaderNodeEmission':
+                        # TODO: Normally, we need to check if the shader input are used
+                        #   For now we will just grab the entry to get the color 
+                        light_color = child.inputs["Color"].default_value
+                        light_energy = child.inputs["Strength"].default_value
+            
+            # If not found, use default panel options
+            if not light_color:
+                light_color = la.color
+            if not light_energy:
+                light_energy = la.energy
+
+            # Premultiply with strenght
+            light_color = (light_color[0] * light_energy, light_color[1] * light_energy, light_color[2] * light_energy)
+            
             if la.type == "AREA" :
                 pbrt_file.attr_begin()
+                # Transform
                 pbrt_file.write( "Transform [" + matrixtostr( ob.matrix_world.transposed() ) + "]\n" )
                 pbrt_file.write( f"Scale {la.size} {la.size_y} 1.0 \n" )
-                pbrt_file.write( f"Scale 0.5 0.5 1.0 \n" )
+                pbrt_file.write( f"Scale 0.5 0.5 -1.0 \n" )
                 pbrt_file.write("\n")
+                # Radiance
+                pbrt_file.write(f'AreaLightSource "diffuse" "rgb L" [ {light_color[0]} {light_color[1]} {light_color[2]} ]\n')
+                pbrt_file.write("\n")
+                # Shape
                 pbrt_file.write(r'Shape "trianglemesh"')
                 pbrt_file.write("\n")
                 pbrt_file.write(r'"point P" [ -1.0 -1.0 0.0 1.0 -1.0 0.0 1.0 1.0 0.0 -1.0 1.0 0.0 ]')
@@ -154,9 +183,6 @@ def export_lights(pbrt_file, scene):
                 pbrt_file.write("\n")
                 pbrt_file.write(r'"integer indices" [ 0 1 2 2 3 0]')
                 pbrt_file.write("\n")
-
-                # export_material(pbrt_file, la, 0)
-
                 pbrt_file.attr_end()
             elif la.type == "POINT":
                 print('\n\nexporting lamp: ' + ob.name + ' - type: ' + ob.type)
@@ -164,7 +190,8 @@ def export_lights(pbrt_file, scene):
                 pbrt_file.attr_begin()
                 from_point=ob.matrix_world.col[3]
                 pbrt_file.write("Translate\t%s %s %s\n" % (from_point.x, from_point.y, from_point.z))
-                pbrt_file.write("LightSource \"point\"\n\"rgb I\" [%s %s %s]\n" % (bpy.data.objects[ob.name].color[0], bpy.data.objects[ob.name].color[1], bpy.data.objects[ob.name].color[2]))
+                pbrt_file.write("LightSource \"point\"\n")
+                pbrt_file.write(f"\"rgb I\" [{light_color[0]} {light_color[1]} {light_color[2]}]\n")
                 pbrt_file.attr_end()
             elif la.type == "SPOT" :
                 print('\n\nexporting light: ' + la.name + ' - type: ' + la.type)
@@ -174,10 +201,7 @@ def export_lights(pbrt_file, scene):
                 at_point=at_point + from_point
                 pbrt_file.attr_begin()
                 pbrt_file.write(" LightSource \"spot\"\n \"point from\" [%s %s %s]\n \"point to\" [%s %s %s]\n" % (from_point.x, from_point.y, from_point.z,at_point.x, at_point.y, at_point.z))
-                
-                #TODO: Parse the values from the light \ color and so on. also add falloff etc.
-                pbrt_file.write("\"blackbody I\" [5500 125]\n")
-
+                pbrt_file.write(f"\"rgb I\" [{light_color[0]} {light_color[1]} {light_color[2]}]\n")
                 pbrt_file.attr_end()
 
 def export_camera(pbrt_file):
@@ -1276,8 +1300,8 @@ def export_geometry(pbrt_file, scene, frameNumber):
                         os.makedirs(objFolderPath)
 
                     # Include the file that will be created
-                    objFilePath = objFolderPath + object.name + '.ply' 
-                    objFilePathRel = 'meshes/' + frameNumber + '/' + object.name + '.ply' 
+                    objFilePath = objFolderPath + object.name + f'_mat{i}.ply' 
+                    objFilePathRel = 'meshes/' + frameNumber + '/' + object.name + f'_mat{i}.ply'
 
                     pbrt_file.write(f'Shape "plymesh" "string filename" ["{objFilePathRel}"]\n')
                     write_ply(objFilePath, mesh, indices, normals, i)
